@@ -7,6 +7,8 @@ class zcl_test_rest definition
     interfaces: if_http_extension.
 
   private section.
+    constants: co_max_rows type i value 500.
+
     data: mo_request       type ref to if_http_request,
           mo_response      type ref to if_http_response,
           mt_header_fields type tihttpnvp,
@@ -63,7 +65,8 @@ class zcl_test_rest definition
 
       write_count_to_response
         importing
-          it_data type any table,
+          i_count type i,
+
       write_struct_to_repsonse
         importing
           is_struct type any.
@@ -82,7 +85,8 @@ class zcl_test_rest implementation.
 
   method get.
 
-    data: tab_ref type ref to data.
+    data: tab_ref      type ref to data,
+          count_result type i.
 
     field-symbols: <table> type standard table.
 
@@ -100,11 +104,19 @@ class zcl_test_rest implementation.
       lcx_error=>raise( |It isn't allowed to mix up index with skip or top| ).
     endif.
 
+    data(count) = get_count( ).
+
+    if top is not initial and skip is not initial and count is initial.
+      lcx_error=>raise( |It isn't allowed to mix up skip or top with count| ).
+    endif.
+
     if index is not initial.
       top = index.
     endif.
 
-    data(count) = get_count( ).
+    if top is initial.
+      top = co_max_rows.
+    endif.
 
     map_form_fields_to_where_cls(
       exporting
@@ -118,17 +130,28 @@ class zcl_test_rest implementation.
     assign tab_ref->* to <table>.
     assert sy-subrc = 0.
 
-    select from (table_name)
-           fields *
-           where (where_clause)
-           order by primary key
-           into table @<table>
-           up to @top rows
-           offset @skip.
+    if count = abap_true.
+
+      select from (table_name)
+             fields count(*)
+             where (where_clause)
+             into @count_result.
+
+    else.
+
+      select from (table_name)
+             fields *
+             where (where_clause)
+             order by primary key
+             into table @<table>
+             up to @top rows
+             offset @skip.
+
+    endif.
 
     if count is not initial.
 
-      write_count_to_response( <table> ).
+      write_count_to_response( count_result ).
 
     elseif index is initial.
 
@@ -303,7 +326,7 @@ class zcl_test_rest implementation.
 
   method write_count_to_response.
 
-    new lcl_count_writer( i_count     = lines( it_data )
+    new lcl_count_writer( i_count     = i_count
                           io_request  = mo_request
                           io_response = mo_response )->execute( ).
 
