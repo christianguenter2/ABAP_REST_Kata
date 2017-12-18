@@ -49,7 +49,12 @@ class zcl_test_rest definition
         returning
           value(r_integer) type i
         raising
-          lcx_error.
+          lcx_error,
+      map_form_fields_to_where_cls
+        importing
+          i_table_name   type string
+        exporting
+          e_where_clause type string.
 
 endclass.
 
@@ -123,6 +128,12 @@ class zcl_test_rest implementation.
       top = index.
     endif.
 
+    map_form_fields_to_where_cls(
+      exporting
+        i_table_name   = table_name
+      importing
+        e_where_clause = data(where_clause) ).
+
     data(table_descr) = get_table_type_description( table_name ).
 
     create data tab_ref type handle table_descr.
@@ -131,6 +142,7 @@ class zcl_test_rest implementation.
 
     select from (table_name)
            fields *
+           where (where_clause)
            order by primary key
            into table @<table>
            up to @top rows
@@ -252,6 +264,40 @@ class zcl_test_rest implementation.
     endif.
 
     r_integer = i_string.
+
+  endmethod.
+
+
+  method map_form_fields_to_where_cls.
+
+    data: selopt_tab type standard table of ddshselopt.
+
+    data(lo_structdescr) = cast cl_abap_structdescr( cl_abap_structdescr=>describe_by_name( i_table_name ) ).
+
+    loop at lo_structdescr->components assigning field-symbol(<component>).
+
+      assign mt_form_fields[ name = to_lower( <component>-name ) ] to field-symbol(<form_field>).
+      if sy-subrc <> 0.
+        continue.
+      endif.
+
+      insert value #( shlpfield = <form_field>-name
+                      sign      = 'I'
+                      option    = 'EQ'
+                      low       = <form_field>-value )
+             into table selopt_tab.
+
+    endloop.
+
+    if lines( selopt_tab ) > 0.
+
+      call function 'F4_CONV_SELOPT_TO_WHERECLAUSE'
+        importing
+          where_clause = e_where_clause
+        tables
+          selopt_tab   = selopt_tab.
+
+    endif.
 
   endmethod.
 
