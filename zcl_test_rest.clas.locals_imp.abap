@@ -2,6 +2,78 @@
 *"* local helper classes, interface definitions and type
 *"* declarations
 
+class lcl_abstract_writer definition abstract.
+
+  public section.
+    methods: execute.
+
+  protected section.
+    data: mo_request  type ref to if_http_request,
+          mo_response type ref to if_http_response.
+
+    methods:
+      transform abstract
+        changing
+          co_writer type ref to cl_sxml_string_writer .
+
+endclass.
+
+class lcl_count_writer definition inheriting from lcl_abstract_writer.
+
+  public section.
+    methods:
+      constructor
+        importing
+          i_count     type i
+          io_request  type ref to if_http_request
+          io_response type ref to if_http_response.
+
+  protected section.
+    methods:
+      transform redefinition.
+
+  private section.
+    data: m_count type i.
+
+endclass.
+
+class lcl_table_writer definition inheriting from lcl_abstract_writer.
+
+  public section.
+    methods:
+      constructor
+        importing
+          it_table    type any
+          io_request  type ref to if_http_request
+          io_response type ref to if_http_response.
+
+  protected section.
+    methods:
+      transform redefinition.
+
+  private section.
+    data: mr_table     type ref to data.
+
+endclass.
+
+class lcl_struct_writer definition inheriting from lcl_abstract_writer.
+
+  public section.
+    methods:
+      constructor
+        importing
+          is_struct   type any
+          io_request  type ref to if_http_request
+          io_response type ref to if_http_response.
+
+  protected section.
+    methods:
+      transform redefinition.
+  private section.
+    data mr_struct type ref to data.
+
+endclass.
+
 class lcx_error implementation.
 
   method constructor.
@@ -57,6 +129,111 @@ class lcx_error implementation.
             number m_msg-msgno
             with m_msg-msgv1 m_msg-msgv2 m_msg-msgv3 m_msg-msgv4
             into r_text.
+
+  endmethod.
+
+endclass.
+
+class lcl_abstract_writer implementation.
+
+  method execute.
+
+    data: writer type ref to cl_sxml_string_writer.
+
+    data(content_type) = mo_request->get_content_type( ).
+
+    case content_type.
+      when 'application/xml'.
+
+        writer = cl_sxml_string_writer=>create( if_sxml=>co_xt_xml10 ).
+
+      when 'application/json'.
+
+        writer = cl_sxml_string_writer=>create( if_sxml=>co_xt_json ).
+
+      when others.
+
+        mo_response->set_status( code   = 404
+                                 reason = |Content-Type { content_type } not supported| ).
+
+    endcase.
+
+    transform( changing co_writer = writer ).
+
+    mo_response->set_data( writer->get_output( ) ).
+    mo_response->set_content_type( content_type ).
+    mo_response->set_status( code   = 200
+                             reason = |ok| ).
+
+  endmethod.
+
+endclass.
+
+class lcl_count_writer implementation.
+
+  method constructor.
+
+    super->constructor( ).
+    m_count = i_count.
+    mo_request = io_request.
+    mo_response = io_response.
+
+  endmethod.
+
+  method transform.
+
+    call transformation id source count = m_count
+                           result xml co_writer.
+
+  endmethod.
+
+endclass.
+
+class lcl_table_writer implementation.
+
+  method constructor.
+
+    super->constructor( ).
+    mr_table = ref #( it_table ).
+    mo_request = io_request.
+    mo_response = io_response.
+
+  endmethod.
+
+  method transform.
+
+    field-symbols: <table> type any table.
+
+    assign mr_table->* to <table>.
+    assert sy-subrc = 0.
+
+    call transformation id source table = <table>
+                           result xml co_writer.
+
+  endmethod.
+
+endclass.
+
+class lcl_struct_writer implementation.
+
+  method constructor.
+
+    super->constructor( ).
+    mr_struct = ref #( is_struct ).
+    mo_request = io_request.
+    mo_response = io_response.
+
+  endmethod.
+
+  method transform.
+
+    field-symbols: <data> type any.
+
+    assign mr_struct->* to <data>.
+    assert sy-subrc = 0.
+
+    call transformation id source item = <data>
+                           result xml co_writer.
 
   endmethod.
 

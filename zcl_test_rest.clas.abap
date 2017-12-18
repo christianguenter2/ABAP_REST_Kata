@@ -19,7 +19,7 @@ class zcl_test_rest definition
         raising
           lcx_error,
 
-      write_data_to_repsonse
+      write_table_to_repsonse
         importing
           i_data type any,
 
@@ -50,16 +50,162 @@ class zcl_test_rest definition
           value(r_integer) type i
         raising
           lcx_error,
+
       map_form_fields_to_where_cls
         importing
           i_table_name   type string
         exporting
-          e_where_clause type string.
+          e_where_clause type string,
+
+      get_count
+        returning
+          value(r_count) type abap_bool,
+
+      write_count_to_response
+        importing
+          it_data type any table,
+      write_struct_to_repsonse
+        importing
+          is_struct type any.
 
 endclass.
 
 
+
 class zcl_test_rest implementation.
+
+
+  method delete.
+
+  endmethod.
+
+
+  method get.
+
+    data: tab_ref type ref to data.
+
+    field-symbols: <table> type standard table.
+
+    get_navigation(
+      importing
+        e_table_name = data(table_name)
+        e_index      = data(index) ).
+
+    get_paginantion_fields(
+      importing
+        e_top  = data(top)
+        e_skip = data(skip) ).
+
+    if index is not initial and ( top is not initial or skip is not initial ).
+      lcx_error=>raise( |It isn't allowed to mix up index with skip or top| ).
+    endif.
+
+    if index is not initial.
+      top = index.
+    endif.
+
+    data(count) = get_count( ).
+
+    map_form_fields_to_where_cls(
+      exporting
+        i_table_name   = table_name
+      importing
+        e_where_clause = data(where_clause) ).
+
+    data(table_descr) = get_table_type_description( table_name ).
+
+    create data tab_ref type handle table_descr.
+    assign tab_ref->* to <table>.
+    assert sy-subrc = 0.
+
+    select from (table_name)
+           fields *
+           where (where_clause)
+           order by primary key
+           into table @<table>
+           up to @top rows
+           offset @skip.
+
+    if count is not initial.
+
+      write_count_to_response( <table> ).
+
+    elseif index is initial.
+
+      write_table_to_repsonse( <table> ).
+
+    elseif line_exists( <table>[ index ] ).
+
+      write_struct_to_repsonse( <table>[ index ] ).
+
+    else.
+
+      lcx_error=>raise( |No data found| ).
+
+    endif.
+
+  endmethod.
+
+
+  method get_count.
+
+    r_count = boolc( line_exists( mt_form_fields[ name = '$count' ] ) ).
+
+  endmethod.
+
+
+  method get_navigation.
+
+    data(path_info) = mo_request->get_header_field( name = '~path_info' ).
+
+    if path_info is initial.
+      lcx_error=>raise( |Please supply entity| ).
+    endif.
+
+    split path_info at '/'
+                    into data(dummy) e_table_name data(index).
+
+    try.
+        e_table_name = cl_abap_dyn_prg=>check_table_name_str( val      = to_upper( e_table_name )
+                                                              packages = '' ).
+
+      catch cx_root into data(error).
+        lcx_error=>raise_exception( error ).
+    endtry.
+
+    e_index = string_to_integer( index ).
+
+  endmethod.
+
+
+  method get_paginantion_fields.
+
+    clear: e_skip, e_top.
+
+    data(skip_string) = mo_request->get_form_field( name = '$skip' ).
+    data(top_string) = mo_request->get_form_field( name = '$top' ).
+
+    if skip_string is not initial.
+
+      e_skip = string_to_integer( skip_string ).
+
+    endif.
+
+    if top_string is not initial.
+
+      e_top = string_to_integer( top_string ).
+
+    endif.
+
+  endmethod.
+
+
+  method get_table_type_description.
+
+    ro_table_description = cl_abap_tabledescr=>create( cast cl_abap_structdescr( cl_abap_structdescr=>describe_by_name( i_table_name ) ) ).
+
+  endmethod.
+
 
   method if_http_extension~handle_request.
 
@@ -104,169 +250,6 @@ class zcl_test_rest implementation.
 
   endmethod.
 
-  method get.
-
-    data: tab_ref type ref to data.
-
-    field-symbols: <table> type standard table.
-
-    get_navigation(
-      importing
-        e_table_name = data(table_name)
-        e_index      = data(index) ).
-
-    get_paginantion_fields(
-      importing
-        e_top  = data(top)
-        e_skip = data(skip) ).
-
-    if index is not initial and ( top is not initial or skip is not initial ).
-      lcx_error=>raise( |It isn't allowed to mix up index with skip or top| ).
-    endif.
-
-    if index is not initial.
-      top = index.
-    endif.
-
-    map_form_fields_to_where_cls(
-      exporting
-        i_table_name   = table_name
-      importing
-        e_where_clause = data(where_clause) ).
-
-    data(table_descr) = get_table_type_description( table_name ).
-
-    create data tab_ref type handle table_descr.
-    assign tab_ref->* to <table>.
-    assert sy-subrc = 0.
-
-    select from (table_name)
-           fields *
-           where (where_clause)
-           order by primary key
-           into table @<table>
-           up to @top rows
-           offset @skip.
-
-    if index is initial.
-
-      write_data_to_repsonse( <table> ).
-
-    elseif line_exists( <table>[ index ] ).
-
-      write_data_to_repsonse( <table>[ index ] ).
-
-    else.
-
-      lcx_error=>raise( |No data found| ).
-
-    endif.
-
-  endmethod.
-
-  method post.
-
-  endmethod.
-
-  method delete.
-
-  endmethod.
-
-  method write_data_to_repsonse.
-
-    data: writer type ref to cl_sxml_string_writer.
-
-    data(content_type) = mo_request->get_content_type( ).
-
-    case content_type.
-      when 'application/xml'.
-
-        writer = cl_sxml_string_writer=>create( if_sxml=>co_xt_xml10 ).
-
-      when 'application/json'.
-
-        writer = cl_sxml_string_writer=>create( if_sxml=>co_xt_json ).
-
-      when others.
-
-        mo_response->set_status( code   = 404
-                                 reason = |Content-Type { content_type } not supported| ).
-
-    endcase.
-
-    call transformation id source table = i_data
-                           result xml writer.
-
-    mo_response->set_data( writer->get_output( ) ).
-    mo_response->set_content_type( content_type ).
-    mo_response->set_status( code   = 200
-                             reason = |ok| ).
-
-  endmethod.
-
-  method get_table_type_description.
-
-    ro_table_description = cl_abap_tabledescr=>create( cast cl_abap_structdescr( cl_abap_structdescr=>describe_by_name( i_table_name ) ) ).
-
-  endmethod.
-
-
-  method get_paginantion_fields.
-
-    clear: e_skip, e_top.
-
-    data(skip_string) = mo_request->get_form_field( name = '$skip' ).
-    data(top_string) = mo_request->get_form_field( name = '$top' ).
-
-    if skip_string is not initial.
-
-      e_skip = string_to_integer( skip_string ).
-
-    endif.
-
-    if top_string is not initial.
-
-      e_top = string_to_integer( top_string ).
-
-    endif.
-
-  endmethod.
-
-
-  method get_navigation.
-
-    data(path_info) = mo_request->get_header_field( name = '~path_info' ).
-
-    if path_info is initial.
-      lcx_error=>raise( |Please supply entity| ).
-    endif.
-
-    split path_info at '/'
-                    into data(dummy) e_table_name data(index).
-
-    try.
-        e_table_name = cl_abap_dyn_prg=>check_table_name_str( val      = to_upper( e_table_name )
-                                                              packages = '' ).
-
-      catch cx_root into data(error).
-        lcx_error=>raise_exception( error ).
-    endtry.
-
-    e_index = string_to_integer( index ).
-
-  endmethod.
-
-
-  method string_to_integer.
-
-    if i_string cn '0123456789'.
-      lcx_error=>raise( |{ i_string } contains invalid characters| ).
-    endif.
-
-    r_integer = i_string.
-
-  endmethod.
-
 
   method map_form_fields_to_where_cls.
 
@@ -298,6 +281,49 @@ class zcl_test_rest implementation.
           selopt_tab   = selopt_tab.
 
     endif.
+
+  endmethod.
+
+
+  method post.
+
+  endmethod.
+
+
+  method string_to_integer.
+
+    if i_string cn '0123456789'.
+      lcx_error=>raise( |{ i_string } contains invalid characters| ).
+    endif.
+
+    r_integer = i_string.
+
+  endmethod.
+
+
+  method write_count_to_response.
+
+    new lcl_count_writer( i_count     = lines( it_data )
+                          io_request  = mo_request
+                          io_response = mo_response )->execute( ).
+
+  endmethod.
+
+
+  method write_table_to_repsonse.
+
+    new lcl_table_writer( it_table    = i_data
+                          io_request  = mo_request
+                          io_response = mo_response )->execute( ).
+
+  endmethod.
+
+
+  method write_struct_to_repsonse.
+
+    new lcl_struct_writer( is_struct   = is_struct
+                           io_request  = mo_request
+                           io_response = mo_response )->execute( ).
 
   endmethod.
 
