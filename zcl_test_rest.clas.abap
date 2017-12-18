@@ -1,254 +1,258 @@
-CLASS zcl_test_rest DEFINITION
-  PUBLIC
-  FINAL
-  CREATE PUBLIC .
+class zcl_test_rest definition
+  public
+  final
+  create public .
 
-  PUBLIC SECTION.
-    INTERFACES: if_http_extension.
+  public section.
+    interfaces: if_http_extension.
 
-  PRIVATE SECTION.
-    DATA: mo_request       TYPE REF TO if_http_request,
-          mo_response      TYPE REF TO if_http_response,
-          mt_header_fields TYPE tihttpnvp,
-          mt_form_fields   TYPE tihttpnvp.
+  private section.
+    data: mo_request       type ref to if_http_request,
+          mo_response      type ref to if_http_response,
+          mt_header_fields type tihttpnvp,
+          mt_form_fields   type tihttpnvp.
 
-    METHODS:
+    methods:
       delete,
       post,
       get
-        RAISING
+        raising
           lcx_error,
 
       write_data_to_repsonse
-        IMPORTING
-          i_data TYPE any,
+        importing
+          i_data type any,
 
       get_table_type_description
-        IMPORTING
-          i_table_name                TYPE string
-        RETURNING
-          VALUE(ro_table_description) TYPE REF TO cl_abap_tabledescr,
+        importing
+          i_table_name                type string
+        returning
+          value(ro_table_description) type ref to cl_abap_tabledescr,
 
       get_paginantion_fields
-        EXPORTING
-          e_top  TYPE i
-          e_skip TYPE i
-        RAISING
+        exporting
+          e_top  type i
+          e_skip type i
+        raising
           lcx_error,
 
       get_navigation
-        EXPORTING
-          e_table_name TYPE string
-          e_index      TYPE i
-        RAISING
+        exporting
+          e_table_name type string
+          e_index      type i
+        raising
           lcx_error,
 
       string_to_integer
-        IMPORTING
-          i_string         TYPE string
-        RETURNING
-          VALUE(r_integer) TYPE i
-        RAISING
+        importing
+          i_string         type string
+        returning
+          value(r_integer) type i
+        raising
           lcx_error.
 
-ENDCLASS.
+endclass.
 
 
-CLASS zcl_test_rest IMPLEMENTATION.
+class zcl_test_rest implementation.
 
-  METHOD if_http_extension~handle_request.
+  method if_http_extension~handle_request.
 
     mo_request = server->request.
     mo_response = server->response.
 
     mo_request->get_header_fields(
-      CHANGING
+      changing
         fields = mt_header_fields ).
 
     mo_request->get_form_fields(
-      CHANGING
+      changing
         fields = mt_form_fields ).
 
-    TRY.
-        CASE mo_request->get_method( ).
-          WHEN 'GET'.
+    try.
+        case mo_request->get_method( ).
+          when 'GET'.
 
             get( ).
 
-          WHEN 'POST'.
+          when 'POST'.
 
             post( ).
 
-          WHEN 'DELETE'.
+          when 'DELETE'.
 
             delete( ).
 
-          WHEN OTHERS.
+          when others.
 
             mo_response->set_status( code   = 405
                                      reason = |Method { mo_request->get_method( ) } not supported| ).
 
-        ENDCASE.
+        endcase.
 
-      CATCH lcx_error INTO DATA(error).
+      catch lcx_error into data(error).
 
         mo_response->set_status( code   = 404
                                  reason = error->get_text( ) ).
 
-    ENDTRY.
+    endtry.
 
-  ENDMETHOD.
+  endmethod.
 
-  METHOD get.
+  method get.
 
-    DATA: tab_ref TYPE REF TO data.
+    data: tab_ref type ref to data.
 
-    FIELD-SYMBOLS: <table> TYPE STANDARD TABLE.
+    field-symbols: <table> type standard table.
 
     get_navigation(
-      IMPORTING
-        e_table_name = DATA(table_name)
-        e_index      = DATA(index) ).
+      importing
+        e_table_name = data(table_name)
+        e_index      = data(index) ).
 
     get_paginantion_fields(
-      IMPORTING
-        e_top  = DATA(top)
-        e_skip = DATA(skip) ).
+      importing
+        e_top  = data(top)
+        e_skip = data(skip) ).
 
-    IF index IS NOT INITIAL AND ( top IS NOT INITIAL OR skip IS NOT INITIAL ).
+    if index is not initial and ( top is not initial or skip is not initial ).
       lcx_error=>raise( |It isn't allowed to mix up index with skip or top| ).
-    ENDIF.
+    endif.
 
-    DATA(table_descr) = get_table_type_description( table_name ).
+    if index is not initial.
+      top = index.
+    endif.
 
-    CREATE DATA tab_ref TYPE HANDLE table_descr.
-    ASSIGN tab_ref->* TO <table>.
-    ASSERT sy-subrc = 0.
+    data(table_descr) = get_table_type_description( table_name ).
 
-    SELECT FROM (table_name)
-           FIELDS *
-           ORDER BY PRIMARY KEY
-           INTO TABLE @<table>
-           UP TO @top ROWS
-           OFFSET @skip.
+    create data tab_ref type handle table_descr.
+    assign tab_ref->* to <table>.
+    assert sy-subrc = 0.
 
-    IF index IS INITIAL.
+    select from (table_name)
+           fields *
+           order by primary key
+           into table @<table>
+           up to @top rows
+           offset @skip.
+
+    if index is initial.
 
       write_data_to_repsonse( <table> ).
 
-    ELSEIF line_exists( <table>[ index ] ).
+    elseif line_exists( <table>[ index ] ).
 
       write_data_to_repsonse( <table>[ index ] ).
 
-    ELSE.
+    else.
 
       lcx_error=>raise( |No data found| ).
 
-    ENDIF.
+    endif.
 
-  ENDMETHOD.
+  endmethod.
 
-  METHOD post.
+  method post.
 
-  ENDMETHOD.
+  endmethod.
 
-  METHOD delete.
+  method delete.
 
-  ENDMETHOD.
+  endmethod.
 
-  METHOD write_data_to_repsonse.
+  method write_data_to_repsonse.
 
-    DATA: writer TYPE REF TO cl_sxml_string_writer.
+    data: writer type ref to cl_sxml_string_writer.
 
-    DATA(content_type) = mo_request->get_content_type( ).
+    data(content_type) = mo_request->get_content_type( ).
 
-    CASE content_type.
-      WHEN 'application/xml'.
+    case content_type.
+      when 'application/xml'.
 
         writer = cl_sxml_string_writer=>create( if_sxml=>co_xt_xml10 ).
 
-      WHEN 'application/json'.
+      when 'application/json'.
 
         writer = cl_sxml_string_writer=>create( if_sxml=>co_xt_json ).
 
-      WHEN OTHERS.
+      when others.
 
         mo_response->set_status( code   = 404
                                  reason = |Content-Type { content_type } not supported| ).
 
-    ENDCASE.
+    endcase.
 
-    CALL TRANSFORMATION id SOURCE table = i_data
-                           RESULT XML writer.
+    call transformation id source table = i_data
+                           result xml writer.
 
     mo_response->set_data( writer->get_output( ) ).
     mo_response->set_content_type( content_type ).
     mo_response->set_status( code   = 200
                              reason = |ok| ).
 
-  ENDMETHOD.
+  endmethod.
 
-  METHOD get_table_type_description.
+  method get_table_type_description.
 
-    ro_table_description = cl_abap_tabledescr=>create( CAST cl_abap_structdescr( cl_abap_structdescr=>describe_by_name( i_table_name ) ) ).
+    ro_table_description = cl_abap_tabledescr=>create( cast cl_abap_structdescr( cl_abap_structdescr=>describe_by_name( i_table_name ) ) ).
 
-  ENDMETHOD.
+  endmethod.
 
 
-  METHOD get_paginantion_fields.
+  method get_paginantion_fields.
 
-    CLEAR: e_skip, e_top.
+    clear: e_skip, e_top.
 
-    DATA(skip_string) = mo_request->get_form_field( name = '$skip' ).
-    DATA(top_string) = mo_request->get_form_field( name = '$top' ).
+    data(skip_string) = mo_request->get_form_field( name = '$skip' ).
+    data(top_string) = mo_request->get_form_field( name = '$top' ).
 
-    IF skip_string IS NOT INITIAL.
+    if skip_string is not initial.
 
       e_skip = string_to_integer( skip_string ).
 
-    ENDIF.
+    endif.
 
-    IF top_string IS NOT INITIAL.
+    if top_string is not initial.
 
       e_top = string_to_integer( top_string ).
 
-    ENDIF.
+    endif.
 
-  ENDMETHOD.
+  endmethod.
 
 
-  METHOD get_navigation.
+  method get_navigation.
 
-    DATA(path_info) = mo_request->get_header_field( name = '~path_info' ).
+    data(path_info) = mo_request->get_header_field( name = '~path_info' ).
 
-    IF path_info IS INITIAL.
+    if path_info is initial.
       lcx_error=>raise( |Please supply entity| ).
-    ENDIF.
+    endif.
 
-    SPLIT path_info AT '/'
-                    INTO DATA(dummy) e_table_name DATA(index).
+    split path_info at '/'
+                    into data(dummy) e_table_name data(index).
 
-    TRY.
+    try.
         e_table_name = cl_abap_dyn_prg=>check_table_name_str( val      = to_upper( e_table_name )
                                                               packages = '' ).
 
-      CATCH cx_root INTO DATA(error).
+      catch cx_root into data(error).
         lcx_error=>raise_exception( error ).
-    ENDTRY.
+    endtry.
 
     e_index = string_to_integer( index ).
 
-  ENDMETHOD.
+  endmethod.
 
 
-  METHOD string_to_integer.
+  method string_to_integer.
 
-    IF i_string CN '0123456789'.
+    if i_string cn '0123456789'.
       lcx_error=>raise( |{ i_string } contains invalid characters| ).
-    ENDIF.
+    endif.
 
     r_integer = i_string.
 
-  ENDMETHOD.
+  endmethod.
 
-ENDCLASS.
+endclass.
