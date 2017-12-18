@@ -5,7 +5,13 @@
 class lcl_abstract_writer definition abstract.
 
   public section.
-    methods: execute.
+    methods:
+      constructor
+        importing
+          io_request  type ref to if_http_request
+          io_response type ref to if_http_response,
+
+      execute.
 
   protected section.
     data: mo_request  type ref to if_http_request,
@@ -69,8 +75,9 @@ class lcl_struct_writer definition inheriting from lcl_abstract_writer.
   protected section.
     methods:
       transform redefinition.
+
   private section.
-    data mr_struct type ref to data.
+    data: mr_struct type ref to data.
 
 endclass.
 
@@ -136,6 +143,13 @@ endclass.
 
 class lcl_abstract_writer implementation.
 
+  method constructor.
+
+    mo_request = io_request.
+    mo_response = io_response.
+
+  endmethod.
+
   method execute.
 
     data: writer type ref to cl_sxml_string_writer.
@@ -173,10 +187,9 @@ class lcl_count_writer implementation.
 
   method constructor.
 
-    super->constructor( ).
+    super->constructor( io_request  = io_request
+                        io_response = io_response ).
     m_count = i_count.
-    mo_request = io_request.
-    mo_response = io_response.
 
   endmethod.
 
@@ -193,10 +206,9 @@ class lcl_table_writer implementation.
 
   method constructor.
 
-    super->constructor( ).
+    super->constructor( io_request  = io_request
+                        io_response = io_response ).
     mr_table = ref #( it_table ).
-    mo_request = io_request.
-    mo_response = io_response.
 
   endmethod.
 
@@ -218,10 +230,9 @@ class lcl_struct_writer implementation.
 
   method constructor.
 
-    super->constructor( ).
+    super->constructor( io_request  = io_request
+                        io_response = io_response ).
     mr_struct = ref #( is_struct ).
-    mo_request = io_request.
-    mo_response = io_response.
 
   endmethod.
 
